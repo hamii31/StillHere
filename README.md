@@ -61,10 +61,10 @@ Android flags apps that send SMS silently as potentially harmful. More important
 
 ## Roadmap
 
-### v1.2 — Snooze / I'm Okay
+### v1.3 — Snooze / I'm Okay
 A one-tap snooze for when you've missed check-ins but are safe — travelling, phone died, busy week. Silences alerts for a configurable period without resetting the streak.
 
-### v1.3 — Trusted Contact Companion
+### v1.4 — Trusted Contact Companion
 Opt-in flow for the person receiving the alert, so they have context and know what to do when the notification arrives.
 
 ---
