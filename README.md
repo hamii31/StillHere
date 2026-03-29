@@ -45,7 +45,7 @@ Requires Android 7.0 (API 24) or higher.
 
 ## Roadmap
 
-### v1.1 — Emergency Contact Alerts *(planned)*
+### v1.0 — Emergency Contact Alerts *(completed)*
 If the button goes unpressed for a set number of days (default: 7), the app will automatically alert a designated contact — either a close person or an emergency number. The goal is a quiet safety net: if something is wrong and you can't press the button, someone will know.
 
 Planned implementation:
