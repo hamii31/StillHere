@@ -1,14 +1,12 @@
 package com.stillhere.app
 
-import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
-import android.telephony.SmsManager
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -26,7 +24,6 @@ class AlertWorker(context: Context, params: WorkerParameters) : Worker(context, 
         const val NOTIF_ID_CRISIS = 1003
         const val NOTIF_ID_112 = 1004
 
-        // Belgian crisis line
         const val CRISIS_LINE = "0800 32 123"
         const val CRISIS_LINE_DIAL = "080032123"
     }
@@ -44,55 +41,53 @@ class AlertWorker(context: Context, params: WorkerParameters) : Worker(context, 
         val contactNumber = prefs.getString("contact_number", "").orEmpty()
         val gracePeriod = prefs.getInt("grace_period_days", 3)
         val enable112 = prefs.getBoolean("enable_112", false)
+        val crisisLineNumber = prefs.getString("crisis_line_number", CRISIS_LINE_DIAL).orEmpty()
+            .ifEmpty { CRISIS_LINE_DIAL }
 
         createNotificationChannel()
 
         when {
-            // Tier 1 — grace period hit: notify personal contact
+            // Tier 1 — grace period: prompt user to SMS personal contact
             daysMissed == gracePeriod && contactNumber.isNotEmpty() -> {
-                sendSms(
-                    contactNumber,
-                    "Hi${if (contactName.isNotEmpty()) " $contactName" else ""}. " +
-                    "This is an automated message from the Still Here app. " +
+                val message = "Hi${if (contactName.isNotEmpty()) " $contactName" else ""}. " +
+                    "This is a message from the Still Here app. " +
                     "Your contact hasn't checked in for $daysMissed days. " +
                     "Please reach out to them when you can."
-                )
-                showNotification(
-                    NOTIF_ID_CONTACT,
-                    "Alert sent to your contact",
-                    "${if (contactName.isNotEmpty()) contactName else "Your contact"} has been notified that you haven't checked in."
+                showSmsPromptNotification(
+                    id = NOTIF_ID_CONTACT,
+                    title = "Tap to alert your contact",
+                    body = "${if (contactName.isNotEmpty()) contactName else "Your contact"} hasn't heard from you in $daysMissed days. Tap to send them a message.",
+                    number = contactNumber,
+                    smsMessage = message
                 )
             }
 
-            // Tier 2 — 7 days: SMS to crisis line + prominent notification
+            // Tier 2 — 7 days: prompt to contact crisis line
             daysMissed == 7 -> {
-                sendSms(
-                    CRISIS_LINE_DIAL,
-                    "Still Here app alert: A user has not checked in for 7 days. " +
-                    "This may require a wellness check."
-                )
-                showCrisisNotification(daysMissed)
+                showCrisisNotification(daysMissed, crisisLineNumber)
             }
 
-            // Tier 3 — 10 days: 112 alert (only if opted in)
+            // Tier 3 — 10 days: prompt to call 112 (opt-in only)
             daysMissed == 10 && enable112 -> {
                 showEmergencyNotification()
-                // Also re-alert personal contact if available
                 if (contactNumber.isNotEmpty()) {
-                    sendSms(
-                        contactNumber,
-                        "URGENT — Still Here app: Your contact has not checked in for 10 days. " +
-                        "Emergency services may be contacted. Please check on them immediately."
+                    val urgentMessage = "URGENT — Still Here app: Your contact has not checked in for 10 days. Please check on them immediately."
+                    showSmsPromptNotification(
+                        id = NOTIF_ID_CONTACT + 1,
+                        title = "Alert your contact urgently",
+                        body = "Tap to send an urgent SMS to ${if (contactName.isNotEmpty()) contactName else "your contact"}.",
+                        number = contactNumber,
+                        smsMessage = urgentMessage
                     )
                 }
             }
 
-            // Daily gentle reminder to user after 2 days
+            // Gentle reminder at day 2
             daysMissed == 2 -> {
-                showNotification(
-                    NOTIF_ID_REMINDER,
-                    "Still Here",
-                    "You haven't checked in for 2 days. We're thinking of you."
+                showSimpleNotification(
+                    id = NOTIF_ID_REMINDER,
+                    title = "Still Here",
+                    body = "You haven't checked in for 2 days. We're thinking of you."
                 )
             }
         }
@@ -103,65 +98,89 @@ class AlertWorker(context: Context, params: WorkerParameters) : Worker(context, 
     private fun daysSince(dateStr: String): Int {
         return try {
             val last = DATE_FORMAT.parse(dateStr) ?: return 0
-            val now = Calendar.getInstance().time
-            val diff = now.time - last.time
+            val diff = Calendar.getInstance().time.time - last.time
             (diff / (1000 * 60 * 60 * 24)).toInt()
         } catch (e: Exception) { 0 }
     }
 
-    private fun sendSms(number: String, message: String) {
-        try {
-            if (ActivityCompat.checkSelfPermission(applicationContext, Manifest.permission.SEND_SMS)
-                == PackageManager.PERMISSION_GRANTED) {
-                val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    applicationContext.getSystemService(SmsManager::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    SmsManager.getDefault()
-                }
-                smsManager.sendTextMessage(number, null, message, null, null)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
+    /**
+     * Shows a notification that, when tapped, opens the SMS app
+     * with the recipient and message pre-filled. No SEND_SMS permission needed.
+     */
+    private fun showSmsPromptNotification(
+        id: Int,
+        title: String,
+        body: String,
+        number: String,
+        smsMessage: String
+    ) {
+        val smsIntent = Intent(Intent.ACTION_SENDTO).apply {
+            data = Uri.parse("smsto:$number")
+            putExtra("sms_body", smsMessage)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
-    }
-
-    private fun showNotification(id: Int, title: String, message: String) {
-        val intent = Intent(applicationContext, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
-            applicationContext, 0, intent,
+            applicationContext, id, smsIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
-            .setContentText(message)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .addAction(android.R.drawable.ic_menu_send, "Send SMS", pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        postNotification(id, notification)
+    }
+
+    private fun showSimpleNotification(id: Int, title: String, body: String) {
+        val intent = Intent(applicationContext, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            applicationContext, id, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .build()
 
-        if (ActivityCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS)
-            == PackageManager.PERMISSION_GRANTED || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            NotificationManagerCompat.from(applicationContext).notify(id, notification)
-        }
+        postNotification(id, notification)
     }
 
-    private fun showCrisisNotification(days: Int) {
-        val dialIntent = Intent(Intent.ACTION_DIAL).apply {
-            data = android.net.Uri.parse("tel:$CRISIS_LINE_DIAL")
+    private fun showCrisisNotification(days: Int, crisisNumber: String) {
+        val callIntent = Intent(Intent.ACTION_DIAL).apply {
+            data = Uri.parse("tel:$crisisNumber")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
-        val pendingIntent = PendingIntent.getActivity(
-            applicationContext, 0, dialIntent,
+        val callPending = PendingIntent.getActivity(
+            applicationContext, NOTIF_ID_CRISIS, callIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val smsIntent = Intent(Intent.ACTION_SENDTO).apply {
+            data = Uri.parse("smsto:$crisisNumber")
+            putExtra("sms_body",
+                "Still Here app: A user has not checked in for $days days. This may require a wellness check.")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        val smsPending = PendingIntent.getActivity(
+            applicationContext, NOTIF_ID_CRISIS + 1, smsIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val message = "You haven't checked in for $days days. " +
-            "The Belgian Crisis Line ($CRISIS_LINE) has been notified. " +
-            "Tap to call them directly — they're available 24/7."
+            "Tap to call your regional crisis line ($crisisNumber) — available 24/7, free, confidential."
 
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
@@ -169,60 +188,60 @@ class AlertWorker(context: Context, params: WorkerParameters) : Worker(context, 
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setContentIntent(pendingIntent)
-            .addAction(android.R.drawable.ic_menu_call, "Call $CRISIS_LINE", pendingIntent)
+            .setContentIntent(callPending)
+            .addAction(android.R.drawable.ic_menu_call, "Call $crisisNumber", callPending)
+            .addAction(android.R.drawable.ic_menu_send, "Send SMS alert", smsPending)
             .setAutoCancel(false)
             .setOngoing(true)
             .build()
 
-        if (ActivityCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS)
-            == PackageManager.PERMISSION_GRANTED || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            NotificationManagerCompat.from(applicationContext).notify(NOTIF_ID_CRISIS, notification)
-        }
+        postNotification(NOTIF_ID_CRISIS, notification)
     }
 
     private fun showEmergencyNotification() {
-        val dialIntent = Intent(Intent.ACTION_DIAL).apply {
-            data = android.net.Uri.parse("tel:112")
+        val callIntent = Intent(Intent.ACTION_DIAL).apply {
+            data = Uri.parse("tel:112")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
-        val pendingIntent = PendingIntent.getActivity(
-            applicationContext, 0, dialIntent,
+        val callPending = PendingIntent.getActivity(
+            applicationContext, NOTIF_ID_112, callIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val message = "10 days without a check-in. Emergency services (112) have been alerted. " +
-            "If you are safe, please open Still Here and check in now."
+        val message = "10 days without a check-in. Tap to call emergency services (112). " +
+            "If you are safe, open Still Here and check in now."
 
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("Emergency alert sent")
+            .setContentTitle("Emergency — please respond")
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setContentIntent(pendingIntent)
-            .addAction(android.R.drawable.ic_menu_call, "Call 112", pendingIntent)
+            .setContentIntent(callPending)
+            .addAction(android.R.drawable.ic_menu_call, "Call 112", callPending)
             .setAutoCancel(false)
             .setOngoing(true)
             .build()
 
-        if (ActivityCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS)
-            == PackageManager.PERMISSION_GRANTED || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            NotificationManagerCompat.from(applicationContext).notify(NOTIF_ID_112, notification)
+        postNotification(NOTIF_ID_112, notification)
+    }
+
+    private fun postNotification(id: Int, notification: android.app.Notification) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ActivityCompat.checkSelfPermission(
+                applicationContext, android.Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            NotificationManagerCompat.from(applicationContext).notify(id, notification)
         }
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Still Here Alerts",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Alerts when check-ins are missed"
-            }
-            val manager = applicationContext.getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+                CHANNEL_ID, "Still Here Alerts", NotificationManager.IMPORTANCE_HIGH
+            ).apply { description = "Alerts when check-ins are missed" }
+            applicationContext.getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
         }
     }
 }

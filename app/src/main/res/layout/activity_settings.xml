@@ -129,40 +129,43 @@
             app:trackColorInactive="@color/card_background"
             app:thumbColor="@color/text_success"/>
 
-        <!-- Crisis Line Info -->
-        <androidx.cardview.widget.CardView
+        <!-- Crisis Line Section -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="CRISIS LINE"
+            android:textSize="11sp"
+            android:textColor="@color/text_secondary"
+            android:letterSpacing="0.1"
+            android:textAllCaps="true"
+            android:layout_marginBottom="12dp"/>
+
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp"
-            app:cardCornerRadius="12dp"
-            app:cardBackgroundColor="@color/card_background"
-            app:cardElevation="0dp">
+            android:text="After 7 missed days, a notification will prompt you to contact this number. Defaults to the Belgian Suicide Prevention Line — change it to your regional crisis line if needed."
+            android:textSize="13sp"
+            android:textColor="@color/text_secondary"
+            android:lineSpacingMultiplier="1.4"
+            android:layout_marginBottom="16dp"/>
 
-            <LinearLayout
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Crisis line number"
+            android:layout_marginBottom="24dp"
+            app:boxStrokeColor="@color/text_secondary"
+            app:hintTextColor="@color/text_secondary">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/crisisLineField"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="CRISIS LINE — DEFAULT"
-                    android:textSize="11sp"
-                    android:textColor="@color/text_success"
-                    android:letterSpacing="0.1"
-                    android:textAllCaps="true"
-                    android:layout_marginBottom="8dp"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="After 7 missed days, the Belgian Suicide Prevention Line (0800 32 123) will automatically receive an SMS alert. This is always active and requires no setup."
-                    android:textSize="13sp"
-                    android:textColor="@color/text_secondary"
-                    android:lineSpacingMultiplier="1.4"/>
-            </LinearLayout>
-        </androidx.cardview.widget.CardView>
+                android:textColor="@color/text_primary"
+                android:inputType="phone"
+                android:text="080032123"/>
+        </com.google.android.material.textfield.TextInputLayout>
 
         <!-- 112 Toggle -->
         <TextView
