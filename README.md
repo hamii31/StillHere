@@ -61,7 +61,3 @@ Planned implementation:
 Open an issue or pull request. Keep it simple — this app is meant to stay small.
 
 ---
-
-## License
-
-MIT
